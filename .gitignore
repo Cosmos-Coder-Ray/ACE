@@ -1,0 +1,116 @@
+# ═══════════════════════════════════════════════════════════════════════
+# ACE — Autonomous Coding Engine  |  .gitignore
+# ═══════════════════════════════════════════════════════════════════════
+
+# ──────────────────────── Python ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.eggs
+sdist/
+wheels/
+*.whl
+pip-wheel-metadata/
+*.manifest
+*.spec
+MANIFEST
+
+# ──────────────────────── Virtual Environments ────────────────────────
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# ──────────────────────── Testing & Coverage ──────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ──────────────────────── Linting & Type Checking ─────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytype/
+
+# ──────────────────────── IDE / Editor ────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ──────────────────────── OS Files ────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ──────────────────────── Jupyter Notebooks ───────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ──────────────────────── ML Checkpoints & Model Weights ──────────────
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.gguf
+
+# ──────────────────────── Training Data & Datasets ────────────────────
+/data/
+!/data/.gitkeep
+*.arrow
+*.parquet
+*.hdf5
+*.h5
+*.tfrecord
+
+# ──────────────────────── Logs & Experiment Tracking ──────────────────
+wandb/
+runs/
+logs/
+*.log
+tensorboard/
+lightning_logs/
+mlruns/
+
+# ──────────────────────── Secrets & Environment ───────────────────────
+.env
+.env.*
+*.pem
+*.key
+secrets/
+credentials/
+
+# ──────────────────────── Miscellaneous ───────────────────────────────
+*.bak
+*.tmp
+*.temp
+*.cache

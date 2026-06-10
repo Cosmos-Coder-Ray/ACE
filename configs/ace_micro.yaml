@@ -1,0 +1,41 @@
+# ──────────────────────────────────────────────────────────────────────
+# ACE Micro — ~1.5B total params, ~400M active (MoE top-2/8)
+# Default development & debugging config
+# ──────────────────────────────────────────────────────────────────────
+
+# Core dimensions
+d_model: 2048
+n_layers: 16
+n_heads: 16
+n_kv_heads: 8
+d_ff: 8192
+vocab_size: 65536
+max_seq_len: 32768
+
+# Mixture of Experts
+num_experts: 8
+top_k_experts: 2
+
+# Layer routing
+mamba_layers: [4, 5, 6, 7]
+moe_layers: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+retnet_layers: [8, 9, 10, 11]
+
+# Transformer²
+transformer2_enabled: true
+
+# Regularisation
+dropout: 0.0
+norm_eps: 1.0e-5
+
+# Positional encoding
+rope_theta: 500000.0
+
+# World model
+world_model_enabled: true
+world_model_d_state: 512
+world_model_n_steps: 8
+
+# Runtime
+dtype: "bfloat16"
+seed: 42

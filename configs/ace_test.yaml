@@ -1,0 +1,41 @@
+# ──────────────────────────────────────────────────────────────────────
+# ACE Test — Tiny config for CPU-only smoke testing
+# No Mamba layers (avoids mamba_ssm dependency)
+# ──────────────────────────────────────────────────────────────────────
+
+# Core dimensions
+d_model: 64
+n_layers: 4
+n_heads: 4
+n_kv_heads: 2
+d_ff: 256
+vocab_size: 256
+max_seq_len: 128
+
+# Mixture of Experts
+num_experts: 4
+top_k_experts: 2
+
+# Layer routing
+mamba_layers: []
+moe_layers: [2, 3]
+retnet_layers: []
+
+# Transformer²
+transformer2_enabled: false
+
+# Regularisation
+dropout: 0.0
+norm_eps: 1.0e-5
+
+# Positional encoding
+rope_theta: 500000.0
+
+# World model
+world_model_enabled: false
+world_model_d_state: 64
+world_model_n_steps: 4
+
+# Runtime
+dtype: "float32"
+seed: 42

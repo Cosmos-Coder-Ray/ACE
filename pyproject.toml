@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "ace"
+version = "0.1.0"
+description = "ACE — Autonomous Coding Engine: a hybrid Transformer + Mamba + MoE + RetNet + World Model architecture"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "AURA Team" }]
+keywords = ["llm", "transformer", "mamba", "moe", "retnet", "world-model"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=2.6.0",
+    "flash-attn>=2.7.0",
+    "mamba-ssm>=2.2.0",
+    "causal-conv1d>=1.5.0",
+    "triton>=3.2.0",
+    "datasets>=3.5.0",
+    "tokenizers>=0.21.0",
+    "transformers>=4.51.0",
+    "accelerate>=1.6.0",
+    "bitsandbytes>=0.45.0",
+    "wandb>=0.19.0",
+    "megablocks>=0.8.0",
+    "einops>=0.8.0",
+    "fastapi>=0.115.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.1.0",
+    "black>=25.1.0",
+    "ruff>=0.11.0",
+    "mypy>=1.15.0",
+    "pre-commit>=4.2.0",
+]
+
+[project.scripts]
+ace-train = "scripts.pretrain:main"
+ace-serve = "ace.inference.server:main"
+
+[tool.setuptools.packages.find]
+include = ["ace*"]
+
+# ──────────────────────────────── Ruff ────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "SIM"]
+ignore = ["E501"]  # line-length handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["ace"]
+
+# ──────────────────────────────── Black ───────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# ──────────────────────────────── Mypy ────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# ──────────────────────────────── Pytest ──────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]

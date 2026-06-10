@@ -1,0 +1,41 @@
+# ──────────────────────────────────────────────────────────────────────
+# ACE Base — ~3B total params
+# Intermediate config between micro and small
+# ──────────────────────────────────────────────────────────────────────
+
+# Core dimensions
+d_model: 3072
+n_layers: 24
+n_heads: 24
+n_kv_heads: 8
+d_ff: 10240
+vocab_size: 65536
+max_seq_len: 32768
+
+# Mixture of Experts
+num_experts: 8
+top_k_experts: 2
+
+# Layer routing
+mamba_layers: [6, 7, 8, 9, 10, 11]
+moe_layers: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+retnet_layers: [12, 13, 14, 15, 16, 17]
+
+# Transformer²
+transformer2_enabled: true
+
+# Regularisation
+dropout: 0.0
+norm_eps: 1.0e-5
+
+# Positional encoding
+rope_theta: 500000.0
+
+# World model
+world_model_enabled: true
+world_model_d_state: 768
+world_model_n_steps: 12
+
+# Runtime
+dtype: "bfloat16"
+seed: 42

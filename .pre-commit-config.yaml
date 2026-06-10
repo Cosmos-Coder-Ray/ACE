@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+repos:
+  # ── Black formatter ─────────────────────────────────────────────────
+  - repo: https://github.com/psf/black
+    rev: "25.1.0"
+    hooks:
+      - id: black
+        language_version: python3.11
+        args: ["--line-length=100"]
+
+  # ── Ruff linter ─────────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.11.6"
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+
+  # ── Mypy type checker ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: "v1.15.0"
+    hooks:
+      - id: mypy
+        additional_dependencies: ["torch>=2.6.0", "pyyaml>=6.0"]
+        args: ["--ignore-missing-imports"]
