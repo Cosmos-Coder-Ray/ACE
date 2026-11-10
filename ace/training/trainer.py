@@ -88,6 +88,21 @@ class TrainConfig:
     resume_from_checkpoint: Optional[str] = None
     aux_loss_coeff: float = 0.01
     seed: int = 42
+    max_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "batch_size",
+            "gradient_accumulation_steps",
+            "max_steps",
+            "checkpoint_every",
+            "eval_every",
+            "log_every",
+        ):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be positive")
+        if self.max_seconds is not None and self.max_seconds <= 0:
+            raise ValueError("max_seconds must be positive")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -139,6 +154,8 @@ class AceTrainer:
         self.train_config: TrainConfig = train_config
         self.device: torch.device = next(model.parameters()).device
         self.global_step: int = 0
+        self._sampler: Any = None
+        self._resume_extra: dict[str, Any] = {}
 
         # ── Optimizer & scheduler ──────────────────────────────────────
         self.optimizer: torch.optim.AdamW = create_optimizer(
@@ -159,7 +176,9 @@ class AceTrainer:
         self.checkpoint_mgr = CheckpointManager(train_config.checkpoint_dir)
 
         # ── Mixed precision ────────────────────────────────────────────
-        self._amp_enabled: bool = train_config.bf16 and self.device.type == "cuda"
+        self._amp_enabled: bool = (
+            train_config.bf16 and self.device.type == "cuda" and torch.cuda.is_bf16_supported()
+        )
         self._amp_dtype: torch.dtype = torch.bfloat16
 
         # ── W&B ───────────────────────────────────────────────────────
@@ -209,6 +228,15 @@ class AceTrainer:
         model = self.model
         model.train()
 
+        if len(train_loader) == 0:
+            raise ValueError("Training loader is empty; reduce batch size or provide more data")
+        self._sampler = train_loader.sampler
+        if "sampler" in self._resume_extra:
+            if not hasattr(self._sampler, "load_state_dict"):
+                raise ValueError("This checkpoint requires a resumable sampler")
+            self._sampler.load_state_dict(self._resume_extra["sampler"])
+        started_at = time.monotonic()
+
         # ── Initialise W&B run ────────────────────────────────────────
         if self._wandb is not None:
             self._wandb.init(
@@ -222,6 +250,10 @@ class AceTrainer:
 
         # ── Infinite data iterator ────────────────────────────────────
         data_iter: Iterator[dict[str, torch.Tensor]] = _InfiniteDataIterator(train_loader)
+        if "rng_cpu" in self._resume_extra:
+            torch.set_rng_state(self._resume_extra["rng_cpu"])
+        if self.device.type == "cuda" and "rng_cuda" in self._resume_extra:
+            torch.cuda.set_rng_state_all(self._resume_extra["rng_cuda"])
 
         # ── Progress bar (optional tqdm) ──────────────────────────────
         pbar = None
@@ -237,10 +269,12 @@ class AceTrainer:
         except ImportError:
             logger.info("tqdm not installed — progress bar disabled")
 
-        last_log_loss: float = 0.0
+        last_log_loss = float(self._resume_extra.get("last_loss", 0.0))
 
         try:
             while self.global_step < cfg.max_steps:
+                if cfg.max_seconds is not None and time.monotonic() - started_at >= cfg.max_seconds:
+                    break  # Stop between optimizer steps, then save below.
                 step_start = time.perf_counter()
 
                 # ── Gradient accumulation loop ────────────────────────
@@ -374,13 +408,16 @@ class AceTrainer:
         """
         input_ids = batch["input_ids"].to(self.device)  # (B, L)
         labels = batch.get("labels", input_ids).to(self.device)  # (B, L)
+        attention_mask = batch.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
 
         with autocast(
             device_type=self.device.type,
             dtype=self._amp_dtype,
             enabled=self._amp_enabled,
         ):
-            output = self.model(input_ids)  # AceModelOutput
+            output = self.model(input_ids, attention_mask=attention_mask)  # AceModelOutput
             logits = output.logits  # (B, L, V)
             aux_loss = output.total_aux_loss  # scalar
 
@@ -411,19 +448,22 @@ class AceTrainer:
         total_loss: float = 0.0
         total_lm: float = 0.0
         total_aux: float = 0.0
-        n_batches: int = 0
+        n_tokens: int = 0
 
         with torch.no_grad():
             for batch in eval_loader:
                 input_ids = batch["input_ids"].to(self.device)  # (B, L)
                 labels = batch.get("labels", input_ids).to(self.device)  # (B, L)
+                attention_mask = batch.get("attention_mask")
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.device)
 
                 with autocast(
                     device_type=self.device.type,
                     dtype=self._amp_dtype,
                     enabled=self._amp_enabled,
                 ):
-                    output = self.model(input_ids)
+                    output = self.model(input_ids, attention_mask=attention_mask)
                     _, metrics = compute_total_loss(
                         output.logits,
                         labels,
@@ -431,12 +471,15 @@ class AceTrainer:
                         aux_loss_coeff=self.train_config.aux_loss_coeff,
                     )
 
-                total_loss += metrics["total_loss"]
-                total_lm += metrics["lm_loss"]
-                total_aux += metrics["aux_loss"]
-                n_batches += 1
+                tokens = int((labels[:, 1:] != -100).sum())
+                total_loss += metrics["total_loss"] * tokens
+                total_lm += metrics["lm_loss"] * tokens
+                total_aux += metrics["aux_loss"] * tokens
+                n_tokens += tokens
 
-        n = max(n_batches, 1)
+        if n_tokens == 0:
+            raise ValueError("Evaluation loader has no target tokens")
+        n = n_tokens
         return {
             "loss": total_loss / n,
             "lm_loss": total_lm / n,
@@ -463,6 +506,11 @@ class AceTrainer:
             step: Current training step.
             loss: Current loss value for metadata.
         """
+        extra: dict[str, Any] = {"rng_cpu": torch.get_rng_state()}
+        if self.device.type == "cuda":
+            extra["rng_cuda"] = torch.cuda.get_rng_state_all()
+        if hasattr(self._sampler, "state_dict"):
+            extra["sampler"] = self._sampler.state_dict()
         self.checkpoint_mgr.save(
             self.model,
             self.optimizer,
@@ -470,6 +518,7 @@ class AceTrainer:
             step=step,
             loss=loss,
             config=self.model_config,
+            extra_state=extra,
         )
         self.checkpoint_mgr.delete_old_checkpoints(keep_last_n=3)
 
@@ -492,6 +541,8 @@ class AceTrainer:
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
         self.global_step = ckpt["step"]
+        self._resume_extra = ckpt.get("extra_state", {})
+        self._resume_extra["last_loss"] = ckpt["loss"]
 
         logger.info(
             "Resumed from checkpoint: step=%d, loss=%.6f",

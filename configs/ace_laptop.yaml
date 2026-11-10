@@ -1,0 +1,19 @@
+# Small, portable baseline. Data preparation sets the exact tokenizer vocabulary.
+d_model: 256
+n_layers: 6
+n_heads: 8
+n_kv_heads: 2
+d_ff: 768
+vocab_size: 4096
+max_seq_len: 512
+num_experts: 4
+top_k_experts: 2
+mamba_layers: []
+moe_layers: []
+retnet_layers: []
+transformer2_enabled: false
+world_model_enabled: false
+tie_embeddings: true
+use_gradient_checkpointing: true
+dtype: float32
+seed: 42

@@ -1,0 +1,30 @@
+{"text":"def add(a, b):\n    return a + b\n\nassert add(2, 3) == 5\n"}
+{"text":"def subtract(a, b):\n    return a - b\n\nassert subtract(9, 4) == 5\n"}
+{"text":"def multiply(a, b):\n    return a * b\n\nassert multiply(3, 4) == 12\n"}
+{"text":"def square(x):\n    return x * x\n\nassert square(6) == 36\n"}
+{"text":"def cube(x):\n    return x ** 3\n\nassert cube(3) == 27\n"}
+{"text":"def is_even(n):\n    return n % 2 == 0\n\nassert is_even(8)\n"}
+{"text":"def is_odd(n):\n    return n % 2 != 0\n\nassert is_odd(7)\n"}
+{"text":"def first(items):\n    return items[0] if items else None\n\nassert first([]) is None\n"}
+{"text":"def last(items):\n    return items[-1] if items else None\n\nassert last([1, 2]) == 2\n"}
+{"text":"def reverse(text):\n    return text[::-1]\n\nassert reverse('abc') == 'cba'\n"}
+{"text":"def greet(name):\n    return f'Hello, {name}!'\n\nassert greet('Ada') == 'Hello, Ada!'\n"}
+{"text":"def clamp(x, low, high):\n    return max(low, min(x, high))\n\nassert clamp(10, 0, 5) == 5\n"}
+{"text":"def total(values):\n    return sum(values)\n\nassert total([1, 2, 3]) == 6\n"}
+{"text":"def average(values):\n    if not values:\n        raise ValueError('empty input')\n    return sum(values) / len(values)\n"}
+{"text":"def count_words(text):\n    return len(text.split())\n\nassert count_words('hello world') == 2\n"}
+{"text":"def unique(values):\n    return list(dict.fromkeys(values))\n\nassert unique([2, 2, 1]) == [2, 1]\n"}
+{"text":"def factorial(n):\n    if n < 0:\n        raise ValueError('negative input')\n    result = 1\n    for value in range(2, n + 1):\n        result *= value\n    return result\n"}
+{"text":"def find_index(values, target):\n    for index, value in enumerate(values):\n        if value == target:\n            return index\n    return -1\n"}
+{"text":"def flatten(rows):\n    return [item for row in rows for item in row]\n\nassert flatten([[1], [2, 3]]) == [1, 2, 3]\n"}
+{"text":"def get_extension(filename):\n    from pathlib import Path\n    return Path(filename).suffix\n"}
+{"text":"def read_utf8(path):\n    with open(path, encoding='utf-8') as stream:\n        return stream.read()\n"}
+{"text":"def parse_json(text):\n    import json\n    return json.loads(text)\n\nassert parse_json('{\"value\": 3}')['value'] == 3\n"}
+{"text":"def positive(values):\n    return [value for value in values if value > 0]\n\nassert positive([-1, 0, 2]) == [2]\n"}
+{"text":"def sorted_names(names):\n    return sorted(names, key=str.casefold)\n\nassert sorted_names(['bob', 'Ada']) == ['Ada', 'bob']\n"}
+{"text":"A dictionary maps keys to values. Use get(key, default) when a missing key is expected.\n"}
+{"text":"A unit test checks a specific behavior. Test empty inputs and boundary values as well as typical inputs.\n"}
+{"text":"To fix a bug, reproduce the failure, locate the cause, make a small change, and rerun the relevant tests.\n"}
+{"text":"Python indentation defines blocks. Spaces inside string literals are data and must be preserved.\n"}
+{"text":"Text can include हिन्दी, 你好, café, and 😀. A tokenizer must preserve these characters exactly.\n"}
+{"text":"def identity(value):\n    return value\n\nassert identity(None) is None\n"}

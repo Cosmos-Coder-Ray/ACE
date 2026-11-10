@@ -3,7 +3,7 @@
 Every hyper-parameter lives here.  No magic numbers in model code.
 
 Usage:
-    config = AceConfig()                       # defaults (~1.5B)
+    config = AceConfig()                       # small dense baseline
     config = AceConfig.from_yaml("ace.yaml")   # load from file
     config.to_yaml("snapshot.yaml")            # persist
     print(config.num_parameters)               # property
@@ -53,25 +53,25 @@ class AceConfig:
     """
 
     # ── Core dimensions ───────────────────────────────────────────────
-    d_model: int = 2048
-    n_layers: int = 16
-    n_heads: int = 16
-    n_kv_heads: int = 8
-    d_ff: int = 8192
-    vocab_size: int = 65536
-    max_seq_len: int = 32768
+    d_model: int = 256
+    n_layers: int = 6
+    n_heads: int = 8
+    n_kv_heads: int = 2
+    d_ff: int = 768
+    vocab_size: int = 4096
+    max_seq_len: int = 512
 
     # ── Mixture of Experts ────────────────────────────────────────────
-    num_experts: int = 8
+    num_experts: int = 4
     top_k_experts: int = 2
 
     # ── Layer routing ─────────────────────────────────────────────────
-    mamba_layers: list[int] = field(default_factory=lambda: [4, 5, 6, 7])
-    moe_layers: list[int] = field(default_factory=lambda: list(range(4, 16)))
-    retnet_layers: list[int] = field(default_factory=lambda: [8, 9, 10, 11])
+    mamba_layers: list[int] = field(default_factory=list)
+    moe_layers: list[int] = field(default_factory=list)
+    retnet_layers: list[int] = field(default_factory=list)
 
     # ── Transformer² ──────────────────────────────────────────────────
-    transformer2_enabled: bool = True
+    transformer2_enabled: bool = False
 
     # ── Regularisation ────────────────────────────────────────────────
     dropout: float = 0.0
@@ -81,7 +81,7 @@ class AceConfig:
     rope_theta: float = 500000.0
 
     # ── World model ───────────────────────────────────────────────────
-    world_model_enabled: bool = True
+    world_model_enabled: bool = False
     world_model_d_state: int = 512
     world_model_n_steps: int = 8
 
@@ -90,7 +90,7 @@ class AceConfig:
     use_gradient_checkpointing: bool = False
 
     # ── Runtime ───────────────────────────────────────────────────────
-    dtype: str = "bfloat16"
+    dtype: str = "float32"
     seed: int = 42
 
     # ── Derived properties ────────────────────────────────────────────
@@ -104,98 +104,38 @@ class AceConfig:
             )
         return self.d_model // self.n_heads
 
+    def parameter_counts(self) -> tuple[int, int]:
+        """Count actual instantiated parameters without allocating their storage.
+
+        The selected backend determines Mamba's tensors. Active count subtracts
+        unselected experts; it is not a FLOP or inference-memory measurement.
+        """
+        import torch
+
+        from ace.model.backbone import AceModel
+        from ace.model.moe import MoEFeedForward
+
+        with torch.device("meta"):
+            model = AceModel(self)
+        total = model.num_parameters
+        inactive = sum(
+            parameter.numel()
+            for layer in model.layers
+            if isinstance(layer.ffn, MoEFeedForward)
+            for expert in list(layer.ffn.experts)[self.top_k_experts :]
+            for parameter in expert.parameters()
+        )
+        return total, total - inactive
+
     @property
     def num_parameters(self) -> int:
-        """Rough estimate of **total** parameters (not active).
-
-        Counts:
-            - Embedding + output projection
-            - Per-layer: attention + FFN (or MoE FFN)
-            - World model (if enabled)
-
-        Returns:
-            Estimated total parameter count.
-        """
-        # Embedding (tied input/output)
-        embed_params = self.vocab_size * self.d_model
-
-        total_layer_params = 0
-        for i in range(self.n_layers):
-            # Attention projection: Q, K, V, O
-            q_params = self.d_model * self.d_model  # Q
-            kv_params = 2 * self.d_model * (self.n_kv_heads * self.head_dim)  # K, V
-            o_params = self.d_model * self.d_model  # O
-            attn_params = q_params + kv_params + o_params
-
-            # FFN
-            if i in self.moe_layers:
-                # Each expert has an FFN, plus the router
-                single_ffn = 3 * self.d_model * self.d_ff  # gate + up + down (SwiGLU)
-                ffn_params = self.num_experts * single_ffn
-                ffn_params += self.d_model * self.num_experts  # router
-            else:
-                ffn_params = 3 * self.d_model * self.d_ff  # SwiGLU
-
-            # Mamba layers replace attention with SSM params — similar magnitude
-            if i in self.mamba_layers:
-                # Mamba: ~4 * d_model * d_model for in/out projections + SSM
-                attn_params = 4 * self.d_model * self.d_model
-
-            # Layer norms (small, but include)
-            norm_params = 2 * self.d_model  # pre-attn + pre-ffn
-
-            total_layer_params += attn_params + ffn_params + norm_params
-
-        # World model
-        wm_params = 0
-        if self.world_model_enabled:
-            wm_params = (
-                self.d_model * self.world_model_d_state * 4  # state transitions
-                + self.world_model_d_state * self.world_model_d_state * 2  # internal
-            )
-
-        # Final layer norm
-        final_norm = self.d_model
-
-        return embed_params + total_layer_params + wm_params + final_norm
+        """Actual total parameters for this configuration and installed backend."""
+        return self.parameter_counts()[0]
 
     @property
     def num_active_parameters(self) -> int:
-        """Estimate of parameters **active per token** (MoE top-k only).
-
-        Returns:
-            Estimated active parameter count.
-        """
-        embed_params = self.vocab_size * self.d_model
-        total_layer_params = 0
-
-        for i in range(self.n_layers):
-            q_params = self.d_model * self.d_model
-            kv_params = 2 * self.d_model * (self.n_kv_heads * self.head_dim)
-            o_params = self.d_model * self.d_model
-            attn_params = q_params + kv_params + o_params
-
-            if i in self.moe_layers:
-                single_ffn = 3 * self.d_model * self.d_ff
-                ffn_params = self.top_k_experts * single_ffn  # only top-k active
-                ffn_params += self.d_model * self.num_experts  # router always active
-            else:
-                ffn_params = 3 * self.d_model * self.d_ff
-
-            if i in self.mamba_layers:
-                attn_params = 4 * self.d_model * self.d_model
-
-            norm_params = 2 * self.d_model
-            total_layer_params += attn_params + ffn_params + norm_params
-
-        wm_params = 0
-        if self.world_model_enabled:
-            wm_params = (
-                self.d_model * self.world_model_d_state * 4
-                + self.world_model_d_state * self.world_model_d_state * 2
-            )
-
-        return embed_params + total_layer_params + wm_params + self.d_model
+        """Approximate parameter participation per token, not compute cost."""
+        return self.parameter_counts()[1]
 
     # ── Serialisation ─────────────────────────────────────────────────
 
@@ -254,6 +194,25 @@ class AceConfig:
 
     def __post_init__(self) -> None:
         """Validate invariants after initialisation."""
+        for name in (
+            "d_model",
+            "n_layers",
+            "n_heads",
+            "n_kv_heads",
+            "d_ff",
+            "vocab_size",
+            "max_seq_len",
+            "num_experts",
+            "top_k_experts",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if not 0 <= self.dropout < 1:
+            raise ValueError("dropout must be in [0, 1)")
+        for name in ("mamba_layers", "moe_layers", "retnet_layers"):
+            indices = getattr(self, name)
+            if any(i < 0 for i in indices) or len(indices) != len(set(indices)):
+                raise ValueError(f"{name} must contain unique nonnegative indices")
         if self.d_model % self.n_heads != 0:
             raise ValueError(
                 f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})"
@@ -283,8 +242,7 @@ class AceConfig:
         Returns:
             Multi-line summary with key metrics.
         """
-        total = self.num_parameters
-        active = self.num_active_parameters
+        total, active = self.parameter_counts()
         sep = "-" * 50
         return (
             f"ACE Config Summary\n"
@@ -317,7 +275,7 @@ if __name__ == "__main__":
     print(cfg.summary())
     assert cfg.head_dim == cfg.d_model // cfg.n_heads
     assert cfg.num_parameters > 0
-    assert cfg.num_active_parameters < cfg.num_parameters
+    assert cfg.num_active_parameters <= cfg.num_parameters
 
     # Test YAML round-trip
     with tempfile.TemporaryDirectory() as tmp:

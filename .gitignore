@@ -47,6 +47,7 @@ coverage.xml
 .dmypy.json
 dmypy.json
 .ruff_cache/
+.cache-black/
 .pytype/
 
 # ──────────────────────── IDE / Editor ────────────────────────────────

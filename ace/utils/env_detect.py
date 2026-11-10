@@ -231,13 +231,13 @@ if __name__ == "__main__":
     # 3. DEVICE / DTYPE consistency
     if HAS_CUDA:
         assert DEVICE == "cuda", "DEVICE should be 'cuda' when CUDA is available"
-        assert DTYPE == torch.bfloat16, "DTYPE should be bfloat16 on CUDA"
+        assert torch.bfloat16 == DTYPE, "DTYPE should be bfloat16 on CUDA"
     else:
         assert DEVICE == "cpu", "DEVICE should be 'cpu' when CUDA is absent"
-        assert DTYPE == torch.float32, "DTYPE should be float32 on CPU"
+        assert torch.float32 == DTYPE, "DTYPE should be float32 on CPU"
 
     # 4. IS_WINDOWS consistency
-    assert IS_WINDOWS == (sys.platform == "win32"), "IS_WINDOWS mismatch"
+    assert (sys.platform == "win32") == IS_WINDOWS, "IS_WINDOWS mismatch"
 
     # 5. log_environment runs without error
     logging.basicConfig(level=logging.DEBUG, format="%(message)s")

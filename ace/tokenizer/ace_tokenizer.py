@@ -1,8 +1,8 @@
 """AceTokenizer — custom BPE tokenizer for the ACE model.
 
 Wraps the HuggingFace ``tokenizers`` library to provide a byte-level BPE
-tokenizer with NFC normalisation, 65 536 vocab, and ACE-specific special
-tokens.  No lowercasing is applied because source code is case-sensitive.
+tokenizer with complete byte coverage, configurable vocabulary, and ACE-specific
+special tokens. No normalization or lowercasing changes source code text.
 
 Usage::
 
@@ -21,7 +21,6 @@ from typing import Optional
 from tokenizers import AddedToken, Tokenizer
 from tokenizers.decoders import ByteLevel as ByteLevelDecoder
 from tokenizers.models import BPE
-from tokenizers.normalizers import NFC
 from tokenizers.pre_tokenizers import ByteLevel
 from tokenizers.trainers import BpeTrainer
 
@@ -44,7 +43,7 @@ class AceTokenizer:
 
         Args:
             tokenizer: A HuggingFace ``Tokenizer`` instance with BPE model,
-                NFC normalisation, and ByteLevel pre-tokenisation already set.
+                ByteLevel pre-tokenisation already set.
 
         Raises:
             TypeError: If *tokenizer* is not a ``Tokenizer`` instance.
@@ -58,11 +57,11 @@ class AceTokenizer:
         """Create a blank BPE tokenizer with ACE defaults.
 
         Returns:
-            A ``Tokenizer`` with BPE model, NFC normaliser, ByteLevel
+            A ``Tokenizer`` with BPE model, no normalizer, ByteLevel
             pre-tokeniser (no prefix space), and ByteLevel decoder.
         """
         tok_obj = Tokenizer(BPE(unk_token=None))
-        tok_obj.normalizer = NFC()
+        # Source code must survive byte-for-byte, including decomposed Unicode.
         tok_obj.pre_tokenizer = ByteLevel(add_prefix_space=False)
         tok_obj.decoder = ByteLevelDecoder()
         return tok_obj
@@ -103,6 +102,11 @@ class AceTokenizer:
                 raise FileNotFoundError(f"Training file not found: {p}")
             resolved.append(str(p))
 
+        if not resolved:
+            raise ValueError("At least one training file is required")
+        if vocab_size < 256 + len(SPECIAL_TOKENS_LIST):
+            raise ValueError("vocab_size must fit all 256 bytes and the special tokens")
+
         logger.info(
             "Training BPE tokenizer — vocab_size=%d, min_freq=%d, files=%d",
             vocab_size,
@@ -116,6 +120,7 @@ class AceTokenizer:
             vocab_size=vocab_size,
             min_frequency=min_frequency,
             special_tokens=SPECIAL_TOKENS_LIST,
+            initial_alphabet=ByteLevel.alphabet(),
             show_progress=True,
         )
         base.train(resolved, trainer)
@@ -365,6 +370,12 @@ class AceTokenizer:
             raise FileNotFoundError(f"Tokenizer file not found: {tokenizer_path}")
 
         base = Tokenizer.from_file(str(tokenizer_path))
+        missing = set(ByteLevel.alphabet()) - set(base.get_vocab())
+        if missing:
+            raise ValueError(
+                "Tokenizer lacks full byte coverage and can lose source text. "
+                "Retrain it; do not change token IDs underneath existing weights."
+            )
         logger.info(
             "Loaded tokenizer from %s — vocab size: %d",
             dirpath,

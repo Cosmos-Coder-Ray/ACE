@@ -237,7 +237,8 @@ class MultiHeadAttention(nn.Module):
         Args:
             x: Input tensor of shape ``(B, L, D)``.
             mask: Optional attention mask of shape ``(B, 1, L, L)`` or
-                broadcastable.  ``True``/``1`` = attend, ``False``/``0`` = mask.
+                broadcastable. Boolean/integer masks use 1 = attend;
+                floating masks are additive. All masks retain causality.
                 If *None* and no KV-cache, a causal mask is generated.
             past_key_value: Optional cached ``(K, V)`` each of shape
                 ``(B, n_kv_heads, L_past, head_dim)``.
@@ -355,6 +356,7 @@ class MultiHeadAttention(nn.Module):
             and mask is None
             and is_causal
             and q.is_cuda
+            and q.dtype in (torch.float16, torch.bfloat16)
         )
 
         if use_flash:
@@ -375,16 +377,23 @@ class MultiHeadAttention(nn.Module):
             return result
 
         # ── Fallback: F.scaled_dot_product_attention ───────────────────
-        # Build causal mask if needed
+        # Cached chunks still need causality within their new tokens. Padding
+        # masks must restrict, never replace, the causal relationship.
         attn_mask: Optional[torch.Tensor] = None
-        if mask is not None:
-            # User-supplied mask: convert bool -> additive float mask
-            # True = attend -> 0.0 ;  False = mask -> -inf
-            if mask.dtype == torch.bool:
-                attn_mask = torch.zeros_like(mask, dtype=q.dtype)  # (B, 1, L, kv_len)
-                attn_mask = attn_mask.masked_fill(~mask, float("-inf"))  # (B, 1, L, kv_len)
-            else:
-                attn_mask = mask  # assume already additive
+        if mask is not None or (kv_len != L and L > 1):
+            query_positions = torch.arange(L, device=q.device) + kv_len - L
+            allowed = torch.arange(kv_len, device=q.device)[None, :] <= query_positions[:, None]
+            attn_mask = torch.zeros((L, kv_len), device=q.device, dtype=q.dtype)
+            attn_mask.masked_fill_(~allowed, float("-inf"))
+            if mask is not None:
+                mask = mask.to(q.device)
+                if mask.ndim == 2 and mask.shape == (B, kv_len):
+                    mask = mask[:, None, None, :]
+                if mask.is_floating_point():
+                    attn_mask = attn_mask + mask.to(q.dtype)
+                else:
+                    attn_mask = attn_mask.masked_fill(~mask.bool(), float("-inf"))
+            is_causal = False
 
         out = F.scaled_dot_product_attention(
             q,  # (B, n_heads, L, head_dim)

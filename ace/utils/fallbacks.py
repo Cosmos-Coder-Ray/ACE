@@ -31,9 +31,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-import math
-import warnings
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -120,9 +118,7 @@ class FallbackMamba(nn.Module):
             FallbackMamba._warned = True
 
         # ── Input projection ──────────────────────────────────────────
-        self.in_proj = nn.Linear(
-            d_model, self.d_inner * 2, bias=False
-        )  # (D) -> (2 * d_inner)
+        self.in_proj = nn.Linear(d_model, self.d_inner * 2, bias=False)  # (D) -> (2 * d_inner)
 
         # ── Causal 1-D convolution ────────────────────────────────────
         self.conv1d = nn.Conv1d(
@@ -141,14 +137,10 @@ class FallbackMamba(nn.Module):
         )  # (d_inner) -> (d_state)
 
         # ── State-to-output projection ────────────────────────────────
-        self.state_proj = nn.Linear(
-            d_state, self.d_inner, bias=False
-        )  # (d_state) -> (d_inner)
+        self.state_proj = nn.Linear(d_state, self.d_inner, bias=False)  # (d_state) -> (d_inner)
 
         # ── Output projection ─────────────────────────────────────────
-        self.out_proj = nn.Linear(
-            self.d_inner, d_model, bias=False
-        )  # (d_inner) -> (D)
+        self.out_proj = nn.Linear(self.d_inner, d_model, bias=False)  # (d_inner) -> (D)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass mimicking ``mamba_ssm.Mamba``.
@@ -163,9 +155,7 @@ class FallbackMamba(nn.Module):
             ValueError: If input last dimension does not match ``d_model``.
         """
         if x.shape[-1] != self.d_model:
-            raise ValueError(
-                f"Expected last dimension {self.d_model}, got {x.shape[-1]}"
-            )
+            raise ValueError(f"Expected last dimension {self.d_model}, got {x.shape[-1]}")
 
         B, L, D = x.shape  # (B, L, D)
 
@@ -183,17 +173,13 @@ class FallbackMamba(nn.Module):
         # ── Parallel GRU scan (approximates selective SSM) ────────────
         # For CPU efficiency, process full sequence at once via an
         # unrolled scan.  Not fast, but correct.
-        h = torch.zeros(
-            B, self.d_state, device=x.device, dtype=x.dtype
-        )  # (B, d_state)
+        h = torch.zeros(B, self.d_state, device=x.device, dtype=x.dtype)  # (B, d_state)
 
         outputs: list[torch.Tensor] = []
         for t in range(L):
             inp_t = x_conv[:, t, :]  # (B, d_inner)
             # GRUCell expects float32 inputs on CPU
-            h = self.gru_cell(
-                inp_t.float(), h.float()
-            ).to(x.dtype)  # (B, d_state)
+            h = self.gru_cell(inp_t.float(), h.float()).to(x.dtype)  # (B, d_state)
             out_t = self.state_proj(h)  # (B, d_inner)
             outputs.append(out_t)
 
@@ -269,9 +255,7 @@ def fallback_flash_attention(
     # ── Handle GQA: expand k,v heads to match q heads ────────────────
     if H_kv != H_q:
         if H_q % H_kv != 0:
-            raise ValueError(
-                f"H_q ({H_q}) must be divisible by H_kv ({H_kv}) for GQA"
-            )
+            raise ValueError(f"H_q ({H_q}) must be divisible by H_kv ({H_kv}) for GQA")
         n_groups: int = H_q // H_kv
         # Expand (B, L, H_kv, D) -> (B, L, H_q, D)
         k = k.repeat_interleave(n_groups, dim=2)  # (B, L_kv, H_q, D)
@@ -432,17 +416,12 @@ class FallbackMoELayer(nn.Module):
         self.d_ff: int = config.d_ff
 
         if self.num_experts <= 0:
-            raise ValueError(
-                f"num_experts must be positive, got {self.num_experts}"
-            )
+            raise ValueError(f"num_experts must be positive, got {self.num_experts}")
         if self.top_k <= 0:
-            raise ValueError(
-                f"top_k_experts must be positive, got {self.top_k}"
-            )
+            raise ValueError(f"top_k_experts must be positive, got {self.top_k}")
         if self.top_k > self.num_experts:
             raise ValueError(
-                f"top_k_experts ({self.top_k}) must be <= "
-                f"num_experts ({self.num_experts})"
+                f"top_k_experts ({self.top_k}) must be <= " f"num_experts ({self.num_experts})"
             )
 
         if not FallbackMoELayer._warned:
@@ -458,9 +437,7 @@ class FallbackMoELayer(nn.Module):
         )  # (D) -> (num_experts)
 
         # ── Expert FFNs (SwiGLU) ──────────────────────────────────────
-        self.experts = nn.ModuleList([
-            self._make_expert(config) for _ in range(config.num_experts)
-        ])
+        self.experts = nn.ModuleList([self._make_expert(config) for _ in range(config.num_experts)])
 
     @staticmethod
     def _make_expert(config: AceConfig) -> nn.Module:
@@ -477,9 +454,7 @@ class FallbackMoELayer(nn.Module):
             d_ff=config.d_ff,
         )
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Dispatch tokens to top-k experts and combine outputs.
 
         Args:
@@ -499,21 +474,17 @@ class FallbackMoELayer(nn.Module):
             router_logits, self.top_k, dim=-1
         )  # (B, L, top_k) each
 
-        routing_weights = F.softmax(
-            top_k_logits, dim=-1, dtype=torch.float32
-        ).to(x.dtype)  # (B, L, top_k)
+        routing_weights = F.softmax(top_k_logits, dim=-1, dtype=torch.float32).to(
+            x.dtype
+        )  # (B, L, top_k)
 
         # ── Auxiliary load-balancing loss ──────────────────────────────
         aux_loss = self._compute_aux_loss(router_logits)  # scalar
 
         # ── Expert dispatch (loop — simple but correct) ───────────────
         x_flat = x.reshape(-1, D)  # (B*L, D)
-        routing_weights_flat = routing_weights.reshape(
-            -1, self.top_k
-        )  # (B*L, top_k)
-        expert_indices_flat = expert_indices.reshape(
-            -1, self.top_k
-        )  # (B*L, top_k)
+        routing_weights_flat = routing_weights.reshape(-1, self.top_k)  # (B*L, top_k)
+        expert_indices_flat = expert_indices.reshape(-1, self.top_k)  # (B*L, top_k)
 
         output_flat = torch.zeros_like(x_flat)  # (B*L, D)
 
@@ -550,9 +521,7 @@ class FallbackMoELayer(nn.Module):
         probs = F.softmax(logits_flat, dim=-1, dtype=torch.float32)  # (B*L, E)
 
         _, top1_indices = torch.topk(logits_flat, k=1, dim=-1)  # (B*L, 1)
-        expert_mask = F.one_hot(
-            top1_indices.squeeze(-1), num_classes=E
-        ).float()  # (B*L, E)
+        expert_mask = F.one_hot(top1_indices.squeeze(-1), num_classes=E).float()  # (B*L, E)
 
         tokens_per_expert = expert_mask.mean(dim=0)  # (E,)
         mean_probs = probs.mean(dim=0)  # (E,)
@@ -622,7 +591,8 @@ def get_mamba_class() -> type:
     """
     if HAS_MAMBA:
         from mamba_ssm import Mamba
-        return Mamba
+
+        return cast(type, Mamba)
     logger.info("get_mamba_class() → FallbackMamba (mamba_ssm unavailable)")
     return FallbackMamba
 
@@ -636,11 +606,9 @@ def get_attention_fn() -> Callable[..., torch.Tensor]:
     """
     if HAS_FLASH_ATTN:
         from flash_attn import flash_attn_func
-        return flash_attn_func
-    logger.info(
-        "get_attention_fn() → fallback_flash_attention "
-        "(flash_attn unavailable)"
-    )
+
+        return cast(Callable[..., torch.Tensor], flash_attn_func)
+    logger.info("get_attention_fn() → fallback_flash_attention " "(flash_attn unavailable)")
     return fallback_flash_attention
 
 
@@ -665,9 +633,7 @@ def get_moe_class() -> type:
             "implemented — using FallbackMoELayer for now."
         )
     else:
-        logger.info(
-            "get_moe_class() → FallbackMoELayer (megablocks unavailable)"
-        )
+        logger.info("get_moe_class() → FallbackMoELayer (megablocks unavailable)")
     return FallbackMoELayer
 
 
@@ -676,7 +642,6 @@ def get_moe_class() -> type:
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import sys
     logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
     print("=" * 60)

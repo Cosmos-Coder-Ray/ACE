@@ -1,67 +1,36 @@
-.PHONY: install train-tokenizer prepare-data pretrain sft eval test lint format export clean help
+.PHONY: help install prepare-data pretrain eval generate test lint format
 
-# ──────────────────────────────────────────────────────────────────────
-# ACE — Autonomous Coding Engine
-# ──────────────────────────────────────────────────────────────────────
+PYTHON ?= python
+CONFIG ?= configs/ace_smoke.yaml
+DATA ?= data/demo
+RUN ?= checkpoints/demo
+MODEL ?= $(RUN)/bundle-00000020
 
-PYTHON     ?= python
-PIP        ?= pip
-CONFIG     ?= configs/ace_micro.yaml
-WANDB_PROJ ?= ace
+help:
+	@echo "See README.md for portable setup, training, resumption and merge commands."
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+install:
+	$(PYTHON) -m pip install -e ".[dev]"
 
-# ── Setup ─────────────────────────────────────────────────────────────
+prepare-data:
+	$(PYTHON) -m scripts.prepare_data --input examples/tiny_code.jsonl --output $(DATA) --config $(CONFIG) --validation-fraction 0.2 --source-license project-authored-workflow-examples
 
-install: ## Install package + dev deps
-	$(PIP) install -e ".[dev]"
-	pre-commit install
+pretrain:
+	$(PYTHON) -m scripts.pretrain --data $(DATA) --output $(RUN) --max-steps 20 --warmup-steps 2 --seq-len 64 --gradient-accumulation-steps 1
 
-# ── Data pipeline ─────────────────────────────────────────────────────
+eval:
+	$(PYTHON) -m scripts.evaluate --model $(MODEL) --data $(DATA) --seq-len 64
 
-train-tokenizer: ## Train the BPE tokenizer
-	$(PYTHON) scripts/train_tokenizer.py --config $(CONFIG)
+generate:
+	$(PYTHON) -m ace.inference.generate --model $(MODEL) --prompt "def add(a, b):" --max-new-tokens 20
 
-prepare-data: ## Preprocess & shard training data
-	$(PYTHON) scripts/prepare_data.py --config $(CONFIG)
+test:
+	$(PYTHON) -m pytest tests -q
 
-# ── Training ──────────────────────────────────────────────────────────
+lint:
+	$(PYTHON) -m ruff check ace scripts tests
+	$(PYTHON) -m mypy ace scripts --ignore-missing-imports
 
-pretrain: ## Launch pre-training run
-	$(PYTHON) scripts/pretrain.py --config $(CONFIG)
-
-sft: ## Supervised fine-tuning
-	$(PYTHON) scripts/sft.py --config $(CONFIG)
-
-# ── Evaluation ────────────────────────────────────────────────────────
-
-eval: ## Run evaluation suite
-	$(PYTHON) scripts/evaluate.py --config $(CONFIG)
-
-# ── Export ────────────────────────────────────────────────────────────
-
-export: ## Export model to GGUF format
-	$(PYTHON) scripts/export_gguf.py --config $(CONFIG)
-
-# ── Quality ───────────────────────────────────────────────────────────
-
-test: ## Run test suite with coverage
-	$(PYTHON) -m pytest tests/ -v --tb=short --cov=ace --cov-report=term-missing
-
-lint: ## Run ruff + mypy
-	$(PYTHON) -m ruff check ace/ tests/ scripts/
-	$(PYTHON) -m mypy ace/ --ignore-missing-imports
-
-format: ## Auto-format with black + ruff
-	$(PYTHON) -m black ace/ tests/ scripts/
-	$(PYTHON) -m ruff check --fix ace/ tests/ scripts/
-
-# ── Cleanup ───────────────────────────────────────────────────────────
-
-clean: ## Remove caches & build artefacts
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type d -name .mypy_cache -exec rm -rf {} + 2>/dev/null || true
-	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
-	rm -rf build/ dist/ *.egg-info/
+format:
+	$(PYTHON) -m black ace scripts tests
+	$(PYTHON) -m ruff check --fix ace scripts tests

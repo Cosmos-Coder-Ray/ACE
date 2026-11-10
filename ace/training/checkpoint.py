@@ -68,6 +68,7 @@ class CheckpointManager:
         step: int,
         loss: float,
         config: Any,
+        extra_state: dict[str, Any] | None = None,
     ) -> Path:
         """Save a training checkpoint to disk.
 
@@ -104,9 +105,13 @@ class CheckpointManager:
             "loss": loss,
             "config": asdict(config),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "extra_state": extra_state or {},
         }
 
-        torch.save(checkpoint, filepath)
+        # A terminated session must not replace a valid checkpoint with half a file.
+        temporary = filepath.with_suffix(".tmp")
+        torch.save(checkpoint, temporary)
+        temporary.replace(filepath)
         logger.info("Checkpoint saved: %s (step=%d, loss=%.6f)", filepath.name, step, loss)
         return filepath
 
@@ -134,7 +139,7 @@ class CheckpointManager:
             latest["path"],
         )
         checkpoint: dict[str, Any] = torch.load(
-            latest["path"], map_location="cpu", weights_only=False
+            latest["path"], map_location="cpu", weights_only=True
         )
         return checkpoint
 
@@ -161,7 +166,7 @@ class CheckpointManager:
             raise FileNotFoundError(f"Checkpoint not found: {filepath}")
 
         logger.info("Loading checkpoint: step=%d from %s", step, filepath)
-        checkpoint: dict[str, Any] = torch.load(filepath, map_location="cpu", weights_only=False)
+        checkpoint: dict[str, Any] = torch.load(filepath, map_location="cpu", weights_only=True)
         return checkpoint
 
     # ------------------------------------------------------------------

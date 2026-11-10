@@ -1,279 +1,181 @@
-#!/usr/bin/env python3
-"""ACE pretraining entry point.
-
-Usage::
-
-    python scripts/pretrain.py --config configs/ace_micro.yaml
-    python scripts/pretrain.py --config configs/ace_micro.yaml --max_steps 5000 --lr 1e-4
-    python scripts/pretrain.py --config configs/ace_micro.yaml --resume_from_checkpoint checkpoints/run_001
-
-Until the data pipeline (``ace/data/``) is implemented, this script
-uses a **synthetic random-token dataset** so the training loop can be
-validated end-to-end.
-"""
+"""Train ACE on prepared local data with bounded sessions and portable exports."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
-import sys
+import uuid
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
-# ── Ensure project root is on sys.path ─────────────────────────────────
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from ace.model.backbone import AceModel  # noqa: E402
-from ace.model.config import AceConfig  # noqa: E402
-from ace.training.trainer import AceTrainer, TrainConfig  # noqa: E402
-
-logger = logging.getLogger(__name__)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Synthetic dataset (placeholder until ace/data/ is built)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class _SyntheticTokenDataset(Dataset[dict[str, torch.Tensor]]):
-    """Random-token dataset for end-to-end training-loop validation.
-
-    Each sample is a dict ``{"input_ids": Tensor(L,)}`` with random
-    token ids drawn uniformly from ``[0, vocab_size)``.
-
-    Attributes:
-        n_samples: Number of synthetic samples.
-        seq_len: Sequence length per sample.
-        vocab_size: Vocabulary size for random token generation.
-    """
-
-    def __init__(self, n_samples: int, seq_len: int, vocab_size: int) -> None:
-        """Initialise the synthetic dataset.
-
-        Args:
-            n_samples: Number of samples in the dataset.
-            seq_len: Sequence length for each sample.
-            vocab_size: Upper bound for random token ids.
-        """
-        self.n_samples: int = n_samples
-        self.seq_len: int = seq_len
-        self.vocab_size: int = vocab_size
-
-    def __len__(self) -> int:
-        """Return the number of samples."""
-        return self.n_samples
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        """Return a random-token sample.
-
-        Args:
-            idx: Sample index (unused — every call generates fresh
-                random tokens).
-
-        Returns:
-            Dict with ``"input_ids"`` of shape ``(L,)``.
-        """
-        input_ids = torch.randint(0, self.vocab_size, (self.seq_len,))  # (L,)
-        return {"input_ids": input_ids}
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CLI argument parsing
-# ═══════════════════════════════════════════════════════════════════════════
+from ace.data.collator import CausalCollator
+from ace.data.dataset import PackedTokenDataset
+from ace.data.preprocessing import file_sha256
+from ace.data.samplers import ResumableRandomSampler
+from ace.inference.bundle import backend_name, load_bundle, save_bundle
+from ace.model.backbone import AceModel
+from ace.model.config import AceConfig
+from ace.tokenizer.ace_tokenizer import AceTokenizer
+from ace.training.trainer import AceTrainer, TrainConfig
+from ace.utils.env_detect import HAS_MAMBA
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns:
-        Parsed arguments namespace.
-    """
-    parser = argparse.ArgumentParser(
-        description="ACE pretraining script",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    # Model config
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to AceConfig YAML file (e.g. configs/ace_micro.yaml)",
-    )
-
-    # Training hyper-parameters (override TrainConfig defaults)
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    parser.add_argument("--max_steps", type=int, default=100_000)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--config", type=Path, help="Defaults to prepared data/config.yaml")
+    parser.add_argument("--init-from", type=Path, help="Continue training a compatible base bundle")
+    parser.add_argument("--resume", action="store_true", help="Resume this output directory")
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
+    parser.add_argument("--max-steps", type=int, default=200)
+    parser.add_argument("--max-seconds", type=float, default=900)
+    parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--weight_decay", type=float, default=0.1)
-    parser.add_argument("--warmup_steps", type=int, default=2000)
-    parser.add_argument("--min_lr_ratio", type=float, default=0.1)
-    parser.add_argument("--gradient_clip", type=float, default=1.0)
-    parser.add_argument("--aux_loss_coeff", type=float, default=0.01)
-
-    # Checkpointing
-    parser.add_argument(
-        "--checkpoint_dir",
-        type=str,
-        default="checkpoints",
-        help="Directory for saving checkpoints",
-    )
-    parser.add_argument("--checkpoint_every", type=int, default=1000)
-    parser.add_argument("--eval_every", type=int, default=500)
-    parser.add_argument("--log_every", type=int, default=10)
-
-    # W&B
-    parser.add_argument("--use_wandb", action="store_true", help="Enable W&B logging")
-    parser.add_argument("--wandb_project", type=str, default="ace-pretrain")
-    parser.add_argument("--wandb_run_name", type=str, default=None)
-
-    # Mixed precision
-    parser.add_argument(
-        "--bf16",
-        action="store_true",
-        default=True,
-        help="Use bfloat16 mixed precision (default: True)",
-    )
-    parser.add_argument(
-        "--no_bf16",
-        action="store_true",
-        help="Disable bfloat16 mixed precision",
-    )
-
-    # Resume
-    parser.add_argument(
-        "--resume_from_checkpoint",
-        type=str,
-        default=None,
-        help="Path to checkpoint directory to resume from",
-    )
-
-    # Data (synthetic placeholder)
-    parser.add_argument(
-        "--n_synthetic_samples",
-        type=int,
-        default=10_000,
-        help="Number of synthetic samples (placeholder until data pipeline)",
-    )
-    parser.add_argument(
-        "--seq_len",
-        type=int,
-        default=512,
-        help="Sequence length for synthetic data",
-    )
-
-    # Misc
+    parser.add_argument("--seq-len", type=int, help="Defaults to the model context limit")
+    parser.add_argument("--checkpoint-every", type=int, default=50)
+    parser.add_argument("--eval-every", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
-
+    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--max-parameters", type=int, default=50_000_000)
+    parser.add_argument("--allow-fallback-mamba", action="store_true")
+    parser.add_argument("--use-wandb", action="store_true")
     return parser.parse_args()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def main() -> None:
-    """Run ACE pretraining."""
     args = parse_args()
-
-    # ── Logging ────────────────────────────────────────────────────────
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    # ── Seed ──────────────────────────────────────────────────────────
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if args.resume and args.init_from:
+        raise ValueError("Use either --resume or --init-from")
+    torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
-
-    # ── Load model config ──────────────────────────────────────────────
-    config_path = Path(args.config)
-    logger.info("Loading model config from %s", config_path)
-    model_config = AceConfig.from_yaml(config_path)
-    logger.info("\n%s", model_config.summary())
-
-    # ── Determine device ──────────────────────────────────────────────
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Using device: %s", device)
-
-    # ── Build model ───────────────────────────────────────────────────
-    logger.info("Building AceModel...")
-    model = AceModel.from_config(model_config)
-
-    # Set dtype
-    model_dtype = torch.float32
-    if args.bf16 and not args.no_bf16 and device.type == "cuda":
-        model_dtype = torch.bfloat16
-
-    model = model.to(device=device, dtype=model_dtype)
-    logger.info(
-        "Model on %s with dtype=%s, params=%s", device, model_dtype, f"{model.num_parameters:,}"
+    config = AceConfig.from_yaml(args.config or args.data / "config.yaml")
+    manifest = json.loads((args.data / "manifest.json").read_text(encoding="utf-8"))
+    tokenizer = AceTokenizer.load(args.data / "tokenizer")
+    if tokenizer.vocab_size != config.vocab_size or manifest["vocab_size"] != config.vocab_size:
+        raise ValueError("Tokenizer, data and model vocabularies must match")
+    tokenizer_hash = file_sha256(args.data / "tokenizer" / "tokenizer.json")
+    if tokenizer_hash != manifest["tokenizer_sha256"]:
+        raise ValueError("Prepared tokenizer fingerprint mismatch")
+    for split in ("train", "validation"):
+        if file_sha256(args.data / f"{split}.bin") != manifest["streams"][split]["sha256"]:
+            raise ValueError(f"Prepared {split} stream fingerprint mismatch")
+    if config.mamba_layers and not HAS_MAMBA and not args.allow_fallback_mamba:
+        raise ValueError(
+            "Native Mamba is unavailable. Use a dense config or explicitly allow the GRU fallback"
+        )
+    # Count without allocating parameter storage, before a mistaken large run.
+    with torch.device("meta"):
+        parameter_count = AceModel(config).num_parameters
+    if parameter_count > args.max_parameters:
+        raise ValueError(f"{parameter_count:,} parameters exceeds budget {args.max_parameters:,}")
+    seq_len = args.seq_len or config.max_seq_len
+    if not 2 <= seq_len <= config.max_seq_len:
+        raise ValueError("seq-len must be between 2 and the configured context length")
+    device = (
+        args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
     )
-
-    # ── Build train config ────────────────────────────────────────────
-    use_bf16 = args.bf16 and not args.no_bf16
     train_config = TrainConfig(
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         max_steps=args.max_steps,
-        lr=args.lr,
-        weight_decay=args.weight_decay,
         warmup_steps=args.warmup_steps,
-        min_lr_ratio=args.min_lr_ratio,
-        checkpoint_dir=args.checkpoint_dir,
+        lr=args.lr,
+        max_seconds=args.max_seconds,
+        checkpoint_dir=str(args.output / "checkpoints"),
         checkpoint_every=args.checkpoint_every,
         eval_every=args.eval_every,
-        log_every=args.log_every,
-        use_wandb=args.use_wandb,
-        wandb_project=args.wandb_project,
-        wandb_run_name=args.wandb_run_name,
-        bf16=use_bf16,
-        gradient_clip=args.gradient_clip,
-        resume_from_checkpoint=args.resume_from_checkpoint,
-        aux_loss_coeff=args.aux_loss_coeff,
+        log_every=10,
         seed=args.seed,
+        use_wandb=args.use_wandb,
+        resume_from_checkpoint=str(args.output / "checkpoints") if args.resume else None,
     )
+    identity = {
+        "config": asdict(config),
+        "backend": backend_name(config),
+        "tokenizer_sha256": tokenizer_hash,
+        "data_sha256": file_sha256(args.data / "manifest.json"),
+        "seq_len": seq_len,
+        "seed": args.seed,
+        "batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "max_steps": args.max_steps,
+        "warmup_steps": args.warmup_steps,
+        "lr": args.lr,
+    }
+    if args.resume:
+        run = json.loads((args.output / "run.json").read_text(encoding="utf-8"))
+        if run["identity"] != identity:
+            raise ValueError(
+                "Resume requires the same model, data, tokenizer and training schedule"
+            )
+    else:
+        if args.output.exists():
+            raise FileExistsError("Choose a new output directory, or use --resume")
+        run = {
+            "identity": identity,
+            "lineage_id": uuid.uuid4().hex,
+            "parameters": parameter_count,
+            "source_license": manifest["source_license"],
+        }
 
-    # ── Build dataset ─────────────────────────────────────────────────
-    logger.info(
-        "Using synthetic dataset: %d samples, seq_len=%d",
-        args.n_synthetic_samples,
-        args.seq_len,
-    )
-    dataset = _SyntheticTokenDataset(
-        n_samples=args.n_synthetic_samples,
-        seq_len=args.seq_len,
-        vocab_size=model_config.vocab_size,
-    )
-    train_loader: DataLoader[Any] = DataLoader(
-        dataset,
-        batch_size=train_config.batch_size,
-        shuffle=True,
-        drop_last=True,
+    if args.init_from:
+        model, _, base = load_bundle(args.init_from)
+        if base["config"] != asdict(config) or base["tokenizer_sha256"] != tokenizer_hash:
+            raise ValueError("Base bundle must match configuration and tokenizer exactly")
+        run["lineage_id"] = base["lineage_id"]
+        run["parent"] = file_sha256(args.init_from / "manifest.json")
+    else:
+        model = AceModel(config)
+    model.to(device)  # Keep master parameters in float32; trainer chooses supported autocast.
+    if not args.resume:
+        args.output.mkdir(parents=True)
+        (args.output / "run.json").write_text(json.dumps(run, indent=2), encoding="utf-8")
+    train_data = PackedTokenDataset(args.data / "train.bin", seq_len, config.vocab_size)
+    eval_data = PackedTokenDataset(args.data / "validation.bin", seq_len, config.vocab_size)
+    collator = CausalCollator(tokenizer.pad_token_id)
+    train_loader = DataLoader(
+        train_data,
+        batch_size=args.batch_size,
+        collate_fn=collator,
         num_workers=0,
+        sampler=ResumableRandomSampler(len(train_data), args.seed),
+        generator=torch.Generator().manual_seed(args.seed),
     )
-
-    # ── Build trainer and run ──────────────────────────────────────────
-    trainer = AceTrainer(model, model_config, train_config)
-
-    logger.info("Starting pretraining...")
-    result = trainer.train(train_loader)
-
-    logger.info("=" * 60)
-    logger.info("Pretraining complete!")
-    logger.info("  Final step: %d", int(result["final_step"]))
-    logger.info("  Final loss: %.6f", result["final_loss"])
-    logger.info("  Checkpoints: %s", train_config.checkpoint_dir)
-    logger.info("=" * 60)
+    eval_loader = DataLoader(
+        eval_data,
+        batch_size=args.batch_size,
+        collate_fn=collator,
+        generator=torch.Generator().manual_seed(args.seed),
+    )
+    trainer = AceTrainer(model, config, train_config)
+    metrics = trainer.train(train_loader, eval_loader)
+    step = int(metrics["final_step"])
+    bundle_path = args.output / f"bundle-{step:08d}"
+    if not bundle_path.exists():
+        save_bundle(
+            model,
+            tokenizer,
+            bundle_path,
+            lineage_id=run["lineage_id"],
+            provenance={
+                "operation": "training",
+                "steps": step,
+                "data_sha256": identity["data_sha256"],
+                "source_license": manifest["source_license"],
+                "quality_verified": False,
+            },
+        )
+    report = {**metrics, "bundle": str(bundle_path)}
+    (args.output / "metrics.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

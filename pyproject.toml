@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=75.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ace"
@@ -9,7 +9,7 @@ description = "ACE — Autonomous Coding Engine: a hybrid Transformer + Mamba + 
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
-authors = [{ name = "AURA Team" }]
+authors = [{ name = "Rishi Tiwari" }]
 keywords = ["llm", "transformer", "mamba", "moe", "retnet", "world-model"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -20,23 +20,17 @@ classifiers = [
 
 dependencies = [
     "torch>=2.6.0",
-    "flash-attn>=2.7.0",
-    "mamba-ssm>=2.2.0",
-    "causal-conv1d>=1.5.0",
-    "triton>=3.2.0",
-    "datasets>=3.5.0",
     "tokenizers>=0.21.0",
-    "transformers>=4.51.0",
-    "accelerate>=1.6.0",
-    "bitsandbytes>=0.45.0",
-    "wandb>=0.19.0",
-    "megablocks>=0.8.0",
     "einops>=0.8.0",
-    "fastapi>=0.115.0",
     "pyyaml>=6.0",
+    "numpy>=1.26",
+    "safetensors>=0.5",
 ]
 
 [project.optional-dependencies]
+cuda = ["mamba-ssm>=2.2.0", "causal-conv1d>=1.5.0", "flash-attn>=2.7.0"]
+finetune = ["transformers>=4.51.0", "peft>=0.15", "accelerate>=1.6.0", "bitsandbytes>=0.45.0"]
+logging = ["wandb>=0.19.0"]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.1.0",
@@ -48,10 +42,14 @@ dev = [
 
 [project.scripts]
 ace-train = "scripts.pretrain:main"
-ace-serve = "ace.inference.server:main"
+ace-prepare = "scripts.prepare_data:main"
+ace-generate = "ace.inference.generate:main"
+ace-evaluate = "scripts.evaluate:main"
+ace-merge = "ace.merging:main"
+ace-upcycle = "scripts.upcycle:main"
 
 [tool.setuptools.packages.find]
-include = ["ace*"]
+include = ["ace*", "scripts*"]
 
 # ──────────────────────────────── Ruff ────────────────────────────────
 [tool.ruff]

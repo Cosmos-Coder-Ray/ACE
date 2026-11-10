@@ -1,0 +1,16 @@
+# Exercises the real-data workflow on CPU; not a useful pretrained model.
+d_model: 64
+n_layers: 2
+n_heads: 4
+n_kv_heads: 2
+d_ff: 128
+vocab_size: 512
+max_seq_len: 128
+num_experts: 2
+top_k_experts: 1
+mamba_layers: []
+moe_layers: [1]
+retnet_layers: []
+transformer2_enabled: false
+world_model_enabled: false
+dtype: float32

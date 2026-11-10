@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────
-# ACE Micro — ~1.5B total params, ~400M active (MoE top-2/8)
-# Default development & debugging config
+# Legacy ACE Micro — roughly 5.4B total / 1.8B active (backend-dependent)
+# Large research preset; use ace_laptop.yaml for low-budget development.
 # ──────────────────────────────────────────────────────────────────────
 
 # Core dimensions
@@ -19,10 +19,10 @@ top_k_experts: 2
 # Layer routing
 mamba_layers: [4, 5, 6, 7]
 moe_layers: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-retnet_layers: [8, 9, 10, 11]
+retnet_layers: []
 
 # Transformer²
-transformer2_enabled: true
+transformer2_enabled: false
 
 # Regularisation
 dropout: 0.0
@@ -32,7 +32,7 @@ norm_eps: 1.0e-5
 rope_theta: 500000.0
 
 # World model
-world_model_enabled: true
+world_model_enabled: false
 world_model_d_state: 512
 world_model_n_steps: 8
 

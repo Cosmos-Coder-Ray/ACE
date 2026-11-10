@@ -20,11 +20,10 @@ Architecture per AceBlock::
 
 The model supports:
     - **Mamba layers**: Layer indices in ``config.mamba_layers`` use the
-      Mamba SSM instead of multi-head attention, providing O(L) sequence
-      modelling for ACE's 32k context window.
+      Mamba implementation instead of multi-head attention. Native Mamba and
+      its GRU fallback must be trained and evaluated separately.
     - **MoE layers**: Layer indices in ``config.moe_layers`` use sparse
-      MoE feed-forward with top-k routing, yielding 1.5B total / 400M
-      active parameters.
+      MoE feed-forward with top-k routing. Parameter count depends on the config.
     - **Weight tying**: When ``config.tie_embeddings=True``, the LM head
       shares weights with the token embedding.
     - **Gradient checkpointing**: When ``config.use_gradient_checkpointing=True``
@@ -340,6 +339,12 @@ class AceModel(nn.Module):
 
         self.config: AceConfig = config
 
+        if config.retnet_layers or config.transformer2_enabled or config.world_model_enabled:
+            raise NotImplementedError(
+                "RetNet, Transformer2 and world-model modules are not implemented. "
+                "Disable those settings or use configs/ace_laptop.yaml."
+            )
+
         # ── Token embedding ───────────────────────────────────────────
         self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model)  # (vocab_size, D)
 
@@ -389,7 +394,7 @@ class AceModel(nn.Module):
         std: float = 0.02
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=std)
-            if module.bias is not None:
+            if module.bias is not None and not getattr(module.bias, "_no_reinit", False):
                 nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0.0, std=std)
@@ -466,6 +471,13 @@ class AceModel(nn.Module):
                 "or disable gradient checkpointing."
             )
 
+        if self.config.mamba_layers and (use_cache or past_key_values is not None):
+            raise ValueError(
+                "Hybrid recurrent-state caching is not implemented; use full-prefix "
+                "generation (use_cache=False) to preserve Mamba history."
+            )
+        if past_key_values is not None and len(past_key_values) != len(self.layers):
+            raise ValueError("past_key_values must contain one entry per layer")
         B, L = input_ids.shape  # (B, L)
 
         # ── Token embeddings ──────────────────────────────────────────
