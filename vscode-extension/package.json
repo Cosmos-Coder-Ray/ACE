@@ -1,0 +1,47 @@
+{
+  "name": "ace-coding-assistant",
+  "displayName": "ACE Coding Assistant",
+  "description": "Local ACE code completion and reviewable patch proposals.",
+  "version": "0.1.0",
+  "publisher": "ace-local",
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Programming Languages", "Machine Learning"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "ace.setToken", "title": "ACE: Set Service Token" },
+      { "command": "ace.proposePatch", "title": "ACE: Propose a Patch" },
+      { "command": "ace.applyPatch", "title": "ACE: Apply Reviewed Patch" },
+      { "command": "ace.discardPatch", "title": "ACE: Discard Proposed Patch" }
+    ],
+    "configuration": {
+      "title": "ACE Coding Assistant",
+      "properties": {
+        "ace.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8765",
+          "description": "Loopback address of the ACE local service."
+        },
+        "ace.maxNewTokens": {
+          "type": "number",
+          "default": 128,
+          "minimum": 1,
+          "maximum": 1024,
+          "description": "Maximum generated tokens for an inline completion."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "npm run compile && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.5.0"
+  }
+}

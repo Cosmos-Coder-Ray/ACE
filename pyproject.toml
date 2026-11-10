@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ace"
 version = "0.1.0"
 description = "ACE — Autonomous Coding Engine: a hybrid Transformer + Mamba + MoE + RetNet + World Model architecture"
-readme = "README.md"
+readme = "Readme.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [{ name = "Rishi Tiwari" }]
@@ -25,11 +25,13 @@ dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26",
     "safetensors>=0.5",
+    "psutil>=6.0.0",
 ]
 
 [project.optional-dependencies]
 cuda = ["mamba-ssm>=2.2.0", "causal-conv1d>=1.5.0", "flash-attn>=2.7.0"]
-finetune = ["transformers>=4.51.0", "peft>=0.15", "accelerate>=1.6.0", "bitsandbytes>=0.45.0"]
+finetune = ["transformers>=4.51.0", "peft>=0.15", "accelerate>=1.6.0"]
+finetune-cuda = ["transformers>=4.51.0", "peft>=0.15", "accelerate>=1.6.0", "bitsandbytes>=0.45.0"]
 logging = ["wandb>=0.19.0"]
 dev = [
     "pytest>=8.3.0",
@@ -43,8 +45,16 @@ dev = [
 [project.scripts]
 ace-train = "scripts.pretrain:main"
 ace-prepare = "scripts.prepare_data:main"
+ace-prepare-repositories = "scripts.prepare_repositories:main"
+ace-prepare-sft = "scripts.prepare_sft_data:main"
+ace-create-eval-suite = "scripts.create_evaluation_suite:main"
+ace-sft = "scripts.sft:main"
+ace-finetune-pretrained = "scripts.finetune_pretrained:main"
 ace-generate = "ace.inference.generate:main"
 ace-evaluate = "scripts.evaluate:main"
+ace-evaluate-coding = "scripts.evaluate_coding:main"
+ace-agent = "ace.inference.agent:main"
+ace-serve = "ace.inference.server:main"
 ace-merge = "ace.merging:main"
 ace-upcycle = "scripts.upcycle:main"
 

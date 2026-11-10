@@ -134,12 +134,12 @@ class TestSpecialTokens:
     """Tests for ace.tokenizer.special_tokens module."""
 
     def test_special_tokens_count(self) -> None:
-        """There are exactly 12 special tokens."""
-        assert len(SPECIAL_TOKENS_LIST) == 12
+        """There are exactly 15 special tokens."""
+        assert len(SPECIAL_TOKENS_LIST) == 15
 
     def test_special_tokens_unique(self) -> None:
         """All special tokens are unique strings."""
-        assert len(set(SPECIAL_TOKENS_LIST)) == 12
+        assert len(set(SPECIAL_TOKENS_LIST)) == 15
 
     def test_special_tokens_sentinel_format(self) -> None:
         """All tokens use the <|...|> sentinel format."""
@@ -163,6 +163,9 @@ class TestSpecialTokens:
             "THINK_END",
             "TOOL_CALL",
             "TOOL_RESULT",
+            "FIM_PREFIX",
+            "FIM_SUFFIX",
+            "FIM_MIDDLE",
         }
         assert set(SPECIAL_TOKENS_DICT.keys()) == expected_keys
 
@@ -265,9 +268,9 @@ class TestSpecialTokensInVocab:
             assert tid is not None, f"Special token {name} ({token_str}) missing from vocab"
 
     def test_special_token_ids_property(self, trained_tokenizer: AceTokenizer) -> None:
-        """The special_token_ids property returns all 12 IDs."""
+        """The special_token_ids property returns all 15 IDs."""
         stids = trained_tokenizer.special_token_ids
-        assert len(stids) == 12
+        assert len(stids) == 15
         assert all(isinstance(v, int) for v in stids.values())
         assert all(v >= 0 for v in stids.values())
 
@@ -415,7 +418,7 @@ class TestProperties:
         r = repr(trained_tokenizer)
         assert "AceTokenizer" in r
         assert "vocab_size=" in r
-        assert "special_tokens=12" in r
+        assert "special_tokens=15" in r
 
 
 # -- Error handling tests ------------------------------------------------

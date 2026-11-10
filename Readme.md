@@ -8,8 +8,9 @@ multimodal/world-model system. The bundled corpus is for workflow verification.
 
 Start with [the development plan](docs/DEVELOPMENT_PLAN.md),
 [architecture and file formats](docs/TECHNICAL_GUIDE.md), and
-[the low-compute strategy](docs/COMPUTE_AND_MERGING.md).
+[the low-compute strategy](docs/Compute_and_merging.md).
 Recorded checks and the small CPU run are in [VALIDATION.md](docs/VALIDATION.md).
+The current coding-model training sequence is in [TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md).
 
 ## Install
 
@@ -31,6 +32,9 @@ Triton, or bitsandbytes. Install the appropriate PyTorch build for your device
 using [PyTorch's installer](https://pytorch.org/get-started/locally/).
 The old `requirements.txt` is a historical Windows environment snapshot, not
 the portable installation contract. Use `pyproject.toml`.
+
+For the pretrained adapter and local service, install the optional Transformers
+and PEFT dependencies with `python -m pip install -e ".[finetune]"`.
 
 ## Run the complete small workflow
 
@@ -133,12 +137,34 @@ This adds capacity and storage requirements, **not newly learned skills**.
 Specialization requires continued training; more total parameters also consume
 more laptop memory. The expert router is initialized anew and needs evaluation.
 
+## Local coding assistant
+
+After training or downloading the separate Qwen LoRA adapter, start the service
+from the repository root:
+
+```text
+ace-serve --model artifacts/qwen-coder-lora --workspace .
+```
+
+It loads the selected model once, binds only to `127.0.0.1`, and prints a local
+service token. In another terminal, set `ACE_SERVICE_TOKEN` to that value and
+use `ace-agent completion --prompt "<|fim_prefix|>def add(a, b):\n    <|fim_suffix|><|fim_middle|>"`.
+`ace-agent patch --file path/to/file.py --instructions "Fix the edge case"`
+returns a unified diff. For project test execution, add an `ace-tests.json` file
+with a test command, language, and optional resource settings. Tests run on a
+scratch copy in Docker with networking disabled; missing Docker or dependencies
+are reported. The VS Code extension packages locally from `vscode-extension/`
+and shows a proposed diff before it can update the open file.
+
 ## Colab, Kaggle and other compute
 
 Use the same module commands from this repository in a notebook terminal or
-with a notebook `!` prefix. See the platform checklist and limitations in
-[COMPUTE_AND_MERGING.md](docs/COMPUTE_AND_MERGING.md). No paid resources are started
-by these commands. The old launcher notebook is superseded by these commands.
+with a notebook `!` prefix. The Colab VS Code extension connects to a remote
+kernel; clone or upload the repository into that runtime before running cells.
+See the [training guide](docs/TRAINING_GUIDE.md) for checkpoint recovery and
+Kaggle version outputs. Paid compute remains a manual choice; the repository
+does not provision instances or start billing. The launcher notebook now
+contains the same command sequence.
 
 ## Current boundaries
 
@@ -147,7 +173,13 @@ by these commands. The old launcher notebook is superseded by these commands.
   backend, requires training opt-in, and cannot substitute for native weights.
 - Hybrid generation recomputes the full prefix; recurrent-state caching is pending.
 - RetNet, Transformer² and world-model flags fail explicitly until implemented.
-- Agent execution, instruction tuning, external model conversion, quantization,
-  GGUF export, image/audio/video processing and production serving remain planned.
-- Existing legacy tokenizers without all 256 byte symbols must be retrained.
-  Never replace a trained model's tokenizer with a different token-ID mapping.
+- Instruction/FIM tuning, a pretrained LoRA adapter path, local loopback service,
+  reviewable patches, and an isolated Docker test runner are implemented. Their
+  held-out coding quality and laptop memory/speed still need to be measured.
+- The included executable starter suite uses small unit-level fixtures. Add
+  repository-level tasks before treating its score as broad coding ability.
+- Quantization, GGUF export, Mamba cache experiments, MoE efficiency,
+  multimodal input/output and production serving remain separate research work.
+- Legacy tokenizer mappings remain loadable and retain their original token IDs.
+  FIM training requires the new versioned tokenizer; never replace a trained
+  model's tokenizer with a different token-ID mapping.

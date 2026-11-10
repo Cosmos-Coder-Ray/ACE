@@ -38,7 +38,12 @@ class AceTokenizer:
 
     # -- Construction ---------------------------------------------------
 
-    def __init__(self, tokenizer: Tokenizer) -> None:
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        special_tokens: dict[str, str] | None = None,
+        format_version: int = 2,
+    ) -> None:
         """Initialise from an already-configured ``Tokenizer``.
 
         Args:
@@ -51,6 +56,11 @@ class AceTokenizer:
         if not isinstance(tokenizer, Tokenizer):
             raise TypeError(f"Expected tokenizers.Tokenizer, got {type(tokenizer).__name__}")
         self._tokenizer: Tokenizer = tokenizer
+        self._special_tokens = dict(special_tokens or SPECIAL_TOKENS_DICT)
+        self.format_version = format_version
+        for name in ("PAD", "BOS", "EOS"):
+            if name not in self._special_tokens:
+                raise ValueError(f"Tokenizer is missing required special token {name}")
 
     @classmethod
     def _build_base(cls) -> Tokenizer:
@@ -159,7 +169,7 @@ class AceTokenizer:
             raise TypeError(f"Expected str, got {type(text).__name__}")
 
         if add_special_tokens:
-            text = SPECIAL_TOKENS_DICT["BOS"] + text + SPECIAL_TOKENS_DICT["EOS"]
+            text = self._special_tokens["BOS"] + text + self._special_tokens["EOS"]
 
         encoding = self._tokenizer.encode(text)
         result: list[int] = encoding.ids  # list[int]
@@ -190,7 +200,7 @@ class AceTokenizer:
             if not isinstance(t, str):
                 raise TypeError(f"Expected str at index {i}, got {type(t).__name__}")
             if add_special_tokens:
-                t = SPECIAL_TOKENS_DICT["BOS"] + t + SPECIAL_TOKENS_DICT["EOS"]
+                t = self._special_tokens["BOS"] + t + self._special_tokens["EOS"]
             prepared.append(t)
 
         encodings = self._tokenizer.encode_batch(prepared)
@@ -267,7 +277,7 @@ class AceTokenizer:
             RuntimeError: If any expected special token is missing from vocab.
         """
         result: dict[str, int] = {}
-        for name, token_str in SPECIAL_TOKENS_DICT.items():
+        for name, token_str in self._special_tokens.items():
             tid = self._tokenizer.token_to_id(token_str)
             if tid is None:
                 raise RuntimeError(f"Special token {name!r} ({token_str!r}) not in vocabulary")
@@ -284,7 +294,7 @@ class AceTokenizer:
         Raises:
             RuntimeError: If PAD token is not in vocabulary.
         """
-        tid = self._tokenizer.token_to_id(SPECIAL_TOKENS_DICT["PAD"])
+        tid = self._tokenizer.token_to_id(self._special_tokens["PAD"])
         if tid is None:
             raise RuntimeError("PAD token not in vocabulary")
         return int(tid)
@@ -299,7 +309,7 @@ class AceTokenizer:
         Raises:
             RuntimeError: If BOS token is not in vocabulary.
         """
-        tid = self._tokenizer.token_to_id(SPECIAL_TOKENS_DICT["BOS"])
+        tid = self._tokenizer.token_to_id(self._special_tokens["BOS"])
         if tid is None:
             raise RuntimeError("BOS token not in vocabulary")
         return int(tid)
@@ -314,7 +324,7 @@ class AceTokenizer:
         Raises:
             RuntimeError: If EOS token is not in vocabulary.
         """
-        tid = self._tokenizer.token_to_id(SPECIAL_TOKENS_DICT["EOS"])
+        tid = self._tokenizer.token_to_id(self._special_tokens["EOS"])
         if tid is None:
             raise RuntimeError("EOS token not in vocabulary")
         return int(tid)
@@ -345,7 +355,10 @@ class AceTokenizer:
         # Also persist the special-token mapping for reconstruction
         special_map_path = dirpath / "special_tokens_map.json"
         with special_map_path.open("w", encoding="utf-8") as f:
-            json.dump(SPECIAL_TOKENS_DICT, f, indent=2, ensure_ascii=False)
+            json.dump(self._special_tokens, f, indent=2, ensure_ascii=False)
+        (dirpath / "ace_tokenizer_config.json").write_text(
+            json.dumps({"format_version": self.format_version}, indent=2), encoding="utf-8"
+        )
 
         logger.info("Saved tokenizer to %s", dirpath)
         return dirpath
@@ -370,8 +383,32 @@ class AceTokenizer:
             raise FileNotFoundError(f"Tokenizer file not found: {tokenizer_path}")
 
         base = Tokenizer.from_file(str(tokenizer_path))
+        special_map_path = dirpath / "special_tokens_map.json"
+        if special_map_path.exists():
+            special_tokens = json.loads(special_map_path.read_text(encoding="utf-8"))
+            if not isinstance(special_tokens, dict) or not all(
+                isinstance(name, str) and isinstance(token, str)
+                for name, token in special_tokens.items()
+            ):
+                raise ValueError("Invalid special_tokens_map.json")
+        else:
+            special_tokens = dict(SPECIAL_TOKENS_DICT)
+        config_path = dirpath / "ace_tokenizer_config.json"
+        format_version = (
+            json.loads(config_path.read_text(encoding="utf-8")).get("format_version", 1)
+            if config_path.exists()
+            else 1
+        )
+        missing_specials = [
+            token for token in special_tokens.values() if base.token_to_id(token) is None
+        ]
+        if missing_specials:
+            raise ValueError(f"Tokenizer is missing declared special tokens: {missing_specials}")
+        # Existing bundles predate the byte-coverage check. Keep their token
+        # IDs loadable; newly trained tokenizers always include the full byte
+        # alphabet and are versioned separately.
         missing = set(ByteLevel.alphabet()) - set(base.get_vocab())
-        if missing:
+        if missing and int(format_version) >= 2:
             raise ValueError(
                 "Tokenizer lacks full byte coverage and can lose source text. "
                 "Retrain it; do not change token IDs underneath existing weights."
@@ -381,7 +418,7 @@ class AceTokenizer:
             dirpath,
             base.get_vocab_size(),
         )
-        return cls(base)
+        return cls(base, special_tokens=special_tokens, format_version=int(format_version))
 
     # -- Utilities ------------------------------------------------------
 
@@ -413,7 +450,7 @@ class AceTokenizer:
         """Return developer-friendly representation."""
         return (
             f"AceTokenizer(vocab_size={self.vocab_size}, "
-            f"special_tokens={len(SPECIAL_TOKENS_LIST)})"
+            f"special_tokens={len(self._special_tokens)}, format_version={self.format_version})"
         )
 
     def __len__(self) -> int:
@@ -480,7 +517,7 @@ if __name__ == "__main__":
 
         # Special tokens
         stids = tok_obj.special_token_ids
-        assert len(stids) == 12, f"Expected 12 special token IDs, got {len(stids)}"
+        assert len(stids) == 15, f"Expected 15 special token IDs, got {len(stids)}"
         assert all(isinstance(v, int) for v in stids.values())
         print(f"  Special tokens OK: {stids}")
 

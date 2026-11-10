@@ -1,0 +1,132 @@
+{
+  "format_version": 1,
+  "sources": [
+    {
+      "name": "requests",
+      "url": "https://github.com/psf/requests.git",
+      "language": "python",
+      "license": "Apache-2.0",
+      "license_file": "LICENSE",
+      "split": "train",
+      "include": ["src/**/*.py"]
+    },
+    {
+      "name": "click",
+      "url": "https://github.com/pallets/click.git",
+      "language": "python",
+      "license": "BSD-3-Clause",
+      "license_file": "LICENSE.txt",
+      "split": "validation",
+      "include": ["src/**/*.py"]
+    },
+    {
+      "name": "express",
+      "url": "https://github.com/expressjs/express.git",
+      "language": "javascript",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "train",
+      "include": ["lib/**/*.js"]
+    },
+    {
+      "name": "lodash",
+      "url": "https://github.com/lodash/lodash.git",
+      "language": "javascript",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["*.js", "fp/**/*.js", "lib/**/*.js"]
+    },
+    {
+      "name": "typescript",
+      "url": "https://github.com/microsoft/TypeScript.git",
+      "language": "typescript",
+      "license": "Apache-2.0",
+      "license_file": "LICENSE.txt",
+      "split": "train",
+      "include": ["src/**/*.ts"],
+      "exclude": ["src/harness/**/*.ts", "src/services/**/*.ts"]
+    },
+    {
+      "name": "zod",
+      "url": "https://github.com/colinhacks/zod.git",
+      "language": "typescript",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["packages/zod/src/**/*.ts"]
+    },
+    {
+      "name": "commons-lang",
+      "url": "https://github.com/apache/commons-lang.git",
+      "language": "java",
+      "license": "Apache-2.0",
+      "license_file": "LICENSE.txt",
+      "split": "train",
+      "include": ["src/main/java/**/*.java"]
+    },
+    {
+      "name": "guava",
+      "url": "https://github.com/google/guava.git",
+      "language": "java",
+      "license": "Apache-2.0",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["guava/src/**/*.java"]
+    },
+    {
+      "name": "serde",
+      "url": "https://github.com/serde-rs/serde.git",
+      "language": "rust",
+      "license": "MIT OR Apache-2.0",
+      "license_file": "LICENSE-MIT",
+      "split": "train",
+      "include": ["serde/src/**/*.rs", "serde_derive/src/**/*.rs"]
+    },
+    {
+      "name": "tokio",
+      "url": "https://github.com/tokio-rs/tokio.git",
+      "language": "rust",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["tokio/src/**/*.rs", "tokio-macros/src/**/*.rs"]
+    },
+    {
+      "name": "cjson",
+      "url": "https://github.com/DaveGamble/cJSON.git",
+      "language": "c",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "train",
+      "include": ["*.c", "*.h"]
+    },
+    {
+      "name": "libuv",
+      "url": "https://github.com/libuv/libuv.git",
+      "language": "c",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["src/**/*.c", "include/**/*.h"]
+    },
+    {
+      "name": "fmt",
+      "url": "https://github.com/fmtlib/fmt.git",
+      "language": "cpp",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "train",
+      "include": ["include/fmt/**/*.h", "src/**/*.cc"]
+    },
+    {
+      "name": "spdlog",
+      "url": "https://github.com/gabime/spdlog.git",
+      "language": "cpp",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "split": "validation",
+      "include": ["include/**/*.h", "src/**/*.cpp"]
+    }
+  ]
+}

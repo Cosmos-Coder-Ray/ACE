@@ -7,7 +7,7 @@ RUN ?= checkpoints/demo
 MODEL ?= $(RUN)/bundle-00000020
 
 help:
-	@echo "See README.md for portable setup, training, resumption and merge commands."
+	@echo "See Readme.md for portable setup, training, resumption and merge commands."
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"

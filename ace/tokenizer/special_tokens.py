@@ -36,6 +36,10 @@ THINK_END: str = "<|think_end|>"
 TOOL_CALL: str = "<|tool_call|>"
 TOOL_RESULT: str = "<|tool_result|>"
 
+FIM_PREFIX: str = "<|fim_prefix|>"
+FIM_SUFFIX: str = "<|fim_suffix|>"
+FIM_MIDDLE: str = "<|fim_middle|>"
+
 
 # -- Aggregated exports ------------------------------------------------
 SPECIAL_TOKENS_DICT: dict[str, str] = {
@@ -51,6 +55,9 @@ SPECIAL_TOKENS_DICT: dict[str, str] = {
     "THINK_END": THINK_END,
     "TOOL_CALL": TOOL_CALL,
     "TOOL_RESULT": TOOL_RESULT,
+    "FIM_PREFIX": FIM_PREFIX,
+    "FIM_SUFFIX": FIM_SUFFIX,
+    "FIM_MIDDLE": FIM_MIDDLE,
 }
 """Mapping from logical token name to its string representation."""
 
@@ -63,8 +70,8 @@ SPECIAL_TOKENS_LIST: list[str] = list(SPECIAL_TOKENS_DICT.values())
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     assert (
-        len(SPECIAL_TOKENS_LIST) == 12
-    ), f"Expected 12 special tokens, got {len(SPECIAL_TOKENS_LIST)}"
+        len(SPECIAL_TOKENS_LIST) == 15
+    ), f"Expected 15 special tokens, got {len(SPECIAL_TOKENS_LIST)}"
     assert len(set(SPECIAL_TOKENS_LIST)) == len(
         SPECIAL_TOKENS_LIST
     ), "Duplicate special tokens detected"
